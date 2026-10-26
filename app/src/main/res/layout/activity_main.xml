@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="10dp">
 
     <TextView
         android:id="@+id/tvInfo"
@@ -11,12 +11,12 @@
         android:layout_height="wrap_content"
         android:background="#F5F5F5"
         android:padding="10dp"
-        android:text="直接点击下方地图选点，或使用下方按钮偏移"
+        android:text="直接点击下方中文地图选点（支持缩放/拖动），选好后可打开百度地图查看"
         android:textSize="13sp"
         android:lineSpacingExtra="3dp"
         android:layout_marginBottom="8dp" />
 
-    <!-- 交互式选点地图 -->
+    <!-- 国内直连中文交互地图 -->
     <WebView
         android:id="@+id/webViewMap"
         android:layout_width="match_parent"
@@ -34,7 +34,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="回到真实位置"
+            android:text="回到当前位置"
             android:textSize="12sp" />
 
         <Button
@@ -42,7 +42,15 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="附近随机(50~300m)"
+            android:text="附近随机点"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnOpenBaidu"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="打开百度地图看"
             android:textSize="12sp" />
 
         <Button
@@ -50,7 +58,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="停止测试定位"
+            android:text="停止定位"
             android:textSize="12sp" />
     </LinearLayout>
 
