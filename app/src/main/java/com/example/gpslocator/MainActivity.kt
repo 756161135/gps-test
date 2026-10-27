@@ -58,7 +58,9 @@ class MainActivity : AppCompatActivity() {
             "✅ 系统已生效(%s): %.6f, %.6f",
             loc.provider, gcj[0], gcj[1]
         )
-        updateUI("悬浮窗保活定位中")
+        if (MockLocationService.isRunning) {
+            updateUI("后台持续锁定定位中")
+        }
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -66,7 +68,10 @@ class MainActivity : AppCompatActivity() {
     ) { perms ->
         if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
             startVerifyListener()
-            fetchCurrentRealLocation()
+            // 如果当前没有正在模拟定位，才去读取初始真实位置，避免打断正在运行的模拟服务
+            if (!MockLocationService.isRunning) {
+                initInitialRealLocationSilently()
+            }
         } else {
             Toast.makeText(this, "请授予位置权限", Toast.LENGTH_SHORT).show()
         }
@@ -80,6 +85,13 @@ class MainActivity : AppCompatActivity() {
         webViewMap = findViewById(R.id.webViewMap)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
+        if (MockLocationService.isRunning) {
+            baseGcjLat = MockLocationService.currentGcjLat
+            baseGcjLng = MockLocationService.currentGcjLng
+            currentGcjLat = baseGcjLat
+            currentGcjLng = baseGcjLng
+        }
+
         syncWgsFromGcj()
         initMapWebView()
         requestNeededPermissions()
@@ -92,8 +104,10 @@ class MainActivity : AppCompatActivity() {
             applyMockLocation()
         }
 
+        // 只有用户主动点击“回到真实位置”按钮时，才停止模拟并读取真实坐标
         findViewById<Button>(R.id.btnGetRealLocation).setOnClickListener {
-            fetchCurrentRealLocation()
+            stopMockLocation()
+            initInitialRealLocationSilently()
         }
 
         findViewById<Button>(R.id.btnNorth).setOnClickListener { moveByMeters(100.0, 0.0) }
@@ -175,7 +189,7 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             Toast.makeText(
                 this,
-                "请先开启【悬浮窗/显示在其他应用上层】权限，开启后返回再点一次确认按钮！",
+                "请先开启【悬浮窗/显示在其他应用上层】权限，开启后返回再点一次绿色确认按钮！",
                 Toast.LENGTH_LONG
             ).show()
             try {
@@ -205,6 +219,8 @@ class MainActivity : AppCompatActivity() {
             action = MockLocationService.ACTION_UPDATE_LOCATION
             putExtra(MockLocationService.EXTRA_WGS_LAT, mockWgsLat)
             putExtra(MockLocationService.EXTRA_WGS_LNG, mockWgsLng)
+            putExtra(MockLocationService.EXTRA_GCJ_LAT, currentGcjLat)
+            putExtra(MockLocationService.EXTRA_GCJ_LNG, currentGcjLng)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
@@ -212,7 +228,7 @@ class MainActivity : AppCompatActivity() {
             startService(serviceIntent)
         }
         startVerifyListener()
-        Toast.makeText(this, "定位已锁定并启动悬浮窗！现在可切换到其他App", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "✅ 定位已锁定并启动悬浮窗！现在可切换到其他App", Toast.LENGTH_SHORT).show()
         updateUI("已锁定该位置并开启悬浮窗保活")
     }
 
@@ -283,7 +299,6 @@ class MainActivity : AppCompatActivity() {
                         iconAnchor: [15, 15]
                     });
 
-                    // 禁止拖动标记本身，改为只通过点击地图选点 + 点击下方绿色确认按钮生效
                     var marker = L.marker([$baseGcjLat, $baseGcjLng], {
                         icon: redDotIcon,
                         draggable: false
@@ -326,12 +341,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun fetchCurrentRealLocation() {
-        stopMockLocation()
+    private fun initInitialRealLocationSilently() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            requestNeededPermissions()
             return
         }
 
@@ -346,7 +359,7 @@ class MainActivity : AppCompatActivity() {
             currentGcjLng = baseGcjLng
             syncWgsFromGcj()
             updateMapMarker(currentGcjLat, currentGcjLng)
-            updateUI("已回到当前真实位置（选好点后点绿色按钮生效）")
+            updateUI("已显示当前位置（选好点后点绿色按钮生效）")
         } else {
             updateUI("请在地图上点击选点，然后点击绿色确认按钮")
         }
@@ -382,7 +395,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateUI(status: String) {
         tvInfo.text = """
             状态：$status
-            当前选点(GCJ02)：${String.format("%.6f", currentGcjLat)}, ${String.format("%.6f", currentGcjLng)}
+            当前选点(国内地图)：${String.format("%.6f", currentGcjLat)}, ${String.format("%.6f", currentGcjLng)}
             $systemVerifiedText
         """.trimIndent()
     }
