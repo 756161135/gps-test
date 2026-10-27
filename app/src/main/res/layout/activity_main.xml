@@ -11,7 +11,7 @@
         android:layout_height="wrap_content"
         android:background="#F5F5F5"
         android:padding="10dp"
-        android:text="直接点击下方中文地图选点（支持缩放/拖动），选好后可打开百度地图查看"
+        android:text="1. 先在地图上点击或滑动找位置\n2. 再点击下方绿色【确认定位到此位置】按钮生效"
         android:textSize="13sp"
         android:lineSpacingExtra="3dp"
         android:layout_marginBottom="8dp" />
@@ -24,6 +24,18 @@
         android:layout_weight="1"
         android:layout_marginBottom="8dp" />
 
+    <!-- 醒目的确认定位大按钮 -->
+    <Button
+        android:id="@+id/btnConfirmLocation"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:backgroundTint="#2E7D32"
+        android:text="📍 确认定位到此位置（开启悬浮窗）"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="6dp" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -34,7 +46,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="回到当前位置"
+            android:text="回到真实位置"
             android:textSize="12sp" />
 
         <Button
@@ -42,7 +54,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="附近随机点"
+            android:text="附近随机定位"
             android:textSize="12sp" />
 
         <Button
@@ -50,7 +62,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="打开百度地图看"
+            android:text="打开百度地图"
             android:textSize="12sp" />
 
         <Button
@@ -58,7 +70,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="停止定位"
+            android:text="停止模拟"
             android:textSize="12sp" />
     </LinearLayout>
 

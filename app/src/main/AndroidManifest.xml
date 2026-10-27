@@ -5,7 +5,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- 前台保活服务权限（防止切到其他应用时被系统休眠导致定位失效） -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- 悬浮窗权限：保持应用在其他 App 上层处于前台可见状态，防止被系统冻结 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -32,7 +34,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 持续推送模拟位置的前台服务 -->
+        <!-- 持续推送模拟位置 + 悬浮窗控制服务 -->
         <service
             android:name=".MockLocationService"
             android:enabled="true"

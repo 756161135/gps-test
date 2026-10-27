@@ -41,23 +41,24 @@ class MainActivity : AppCompatActivity() {
     private var baseGcjLat = 39.908823
     private var baseGcjLng = 116.397470
 
+    // 当前地图上选中的预览坐标（点击“确认定位到此位置”按钮后正式生效）
     private var currentGcjLat = baseGcjLat
     private var currentGcjLng = baseGcjLng
 
     private var mockWgsLat = 39.9074
     private var mockWgsLng = 116.3912
 
-    private var systemVerifiedText = "等待验证..."
+    private var systemVerifiedText = "未启动模拟（选好位置后请点绿色确认按钮）"
     private val handler = Handler(Looper.getMainLooper())
 
     // 实时回读系统当前生效的 GPS 坐标，验证是否真的修改成功
     private val verifyListener = LocationListener { loc: Location ->
         val gcj = wgs84ToGcj02(loc.latitude, loc.longitude)
         systemVerifiedText = String.format(
-            "系统已生效(%s): %.6f, %.6f",
+            "✅ 系统已生效(%s): %.6f, %.6f",
             loc.provider, gcj[0], gcj[1]
         )
-        updateUI("后台高频持续定位中")
+        updateUI("悬浮窗保活定位中")
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -82,6 +83,14 @@ class MainActivity : AppCompatActivity() {
         syncWgsFromGcj()
         initMapWebView()
         requestNeededPermissions()
+
+        // 点击绿色大按钮：正式把当前地图选点设为模拟位置并开启悬浮窗
+        findViewById<Button>(R.id.btnConfirmLocation).setOnClickListener {
+            baseGcjLat = currentGcjLat
+            baseGcjLng = currentGcjLng
+            syncWgsFromGcj()
+            applyMockLocation()
+        }
 
         findViewById<Button>(R.id.btnGetRealLocation).setOnClickListener {
             fetchCurrentRealLocation()
@@ -138,9 +147,6 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
-    /**
-     * 检查是否已在“开发者选项 -> 选择模拟位置信息应用”中选中本应用
-     */
     private fun isMockLocationEnabled(): Boolean {
         return try {
             val opsManager = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
@@ -165,10 +171,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyMockLocation() {
+        // 1. 先检查悬浮窗权限（确保切换到其他 App 时不会被系统冻结）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(
+                this,
+                "请先开启【悬浮窗/显示在其他应用上层】权限，开启后返回再点一次确认按钮！",
+                Toast.LENGTH_LONG
+            ).show()
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            } catch (_: Exception) {}
+            return
+        }
+
+        // 2. 再检查开发者选项模拟位置权限
         if (!isMockLocationEnabled()) {
             Toast.makeText(
                 this,
-                "未授权！请在刚弹出的【开发者选项 -> 选择模拟位置信息应用】中选择本软件",
+                "未授权！请在【开发者选项 -> 选择模拟位置信息应用】中选择本软件",
                 Toast.LENGTH_LONG
             ).show()
             try {
@@ -188,7 +212,8 @@ class MainActivity : AppCompatActivity() {
             startService(serviceIntent)
         }
         startVerifyListener()
-        updateUI("已启动后台保活服务持续注入定位")
+        Toast.makeText(this, "定位已锁定并启动悬浮窗！现在可切换到其他App", Toast.LENGTH_SHORT).show()
+        updateUI("已锁定该位置并开启悬浮窗保活")
     }
 
     private fun openBaiduMapApp() {
@@ -258,21 +283,18 @@ class MainActivity : AppCompatActivity() {
                         iconAnchor: [15, 15]
                     });
 
+                    // 禁止拖动标记本身，改为只通过点击地图选点 + 点击下方绿色确认按钮生效
                     var marker = L.marker([$baseGcjLat, $baseGcjLng], {
                         icon: redDotIcon,
-                        draggable: true
+                        draggable: false
                     }).addTo(map);
 
+                    // 点击地图仅移动红点预览坐标，不直接触发模拟
                     map.on('click', function(e) {
                         var lat = e.latlng.lat;
                         var lng = e.latlng.lng;
                         marker.setLatLng([lat, lng]);
-                        AndroidBridge.onMapLocationPicked(lat, lng);
-                    });
-
-                    marker.on('dragend', function(e) {
-                        var pos = marker.getLatLng();
-                        AndroidBridge.onMapLocationPicked(pos.lat, pos.lng);
+                        AndroidBridge.onMapLocationPreview(lat, lng);
                     });
 
                     function updateMarker(lat, lng) {
@@ -289,14 +311,12 @@ class MainActivity : AppCompatActivity() {
 
     inner class MapJsBridge {
         @JavascriptInterface
-        fun onMapLocationPicked(gcjLat: Double, gcjLng: Double) {
+        fun onMapLocationPreview(gcjLat: Double, gcjLng: Double) {
             handler.post {
-                baseGcjLat = gcjLat
-                baseGcjLng = gcjLng
                 currentGcjLat = gcjLat
                 currentGcjLng = gcjLng
                 syncWgsFromGcj()
-                applyMockLocation()
+                updateUI("已选点预览（请点击下方绿色【确认定位到此位置】按钮生效）")
             }
         }
     }
@@ -326,9 +346,9 @@ class MainActivity : AppCompatActivity() {
             currentGcjLng = baseGcjLng
             syncWgsFromGcj()
             updateMapMarker(currentGcjLat, currentGcjLng)
-            updateUI("已获取真实位置（点击地图任意点开始模拟）")
+            updateUI("已回到当前真实位置（选好点后点绿色按钮生效）")
         } else {
-            updateUI("请直接在下方地图缩放并点击选点")
+            updateUI("请在地图上点击选点，然后点击绿色确认按钮")
         }
     }
 
@@ -356,13 +376,13 @@ class MainActivity : AppCompatActivity() {
         }
         startService(serviceIntent)
         systemVerifiedText = "已停止模拟"
-        updateUI("已停止测试定位")
+        updateUI("已停止测试定位（悬浮窗已关闭）")
     }
 
     private fun updateUI(status: String) {
         tvInfo.text = """
             状态：$status
-            选点坐标(GCJ02)：${String.format("%.6f", currentGcjLat)}, ${String.format("%.6f", currentGcjLng)}
+            当前选点(GCJ02)：${String.format("%.6f", currentGcjLat)}, ${String.format("%.6f", currentGcjLng)}
             $systemVerifiedText
         """.trimIndent()
     }
