@@ -74,16 +74,23 @@ class MockLocationService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // 激活系统定位派发队列与 LastKnownLocation 缓存的监听器
     private val gpsKeepAliveListener = LocationListener { _ -> }
     private val netKeepAliveListener = LocationListener { _ -> }
+    private val fusedKeepAliveListener = LocationListener { _ -> }
+
+    // 三个核心定位通道全部接管（隔离异常处理，互不影响）
+    private val allTargetProviders = listOf(
+        LocationManager.GPS_PROVIDER,
+        LocationManager.NETWORK_PROVIDER,
+        "fused"
+    )
 
     private val pushRunnable = object : Runnable {
         override fun run() {
             if (!isRunning) return
             pushMockLocationToProviders(currentWgsLat, currentWgsLng)
-            // 每 100 毫秒稳定推送一次，绝不中途调用 removeTestProvider
-            workerHandler?.postDelayed(this, 100L)
+            // 每 80 毫秒高频推送一次，在联网状态下持续压制基站/Wi-Fi在线定位回调
+            workerHandler?.postDelayed(this, 80L)
         }
     }
 
@@ -121,9 +128,10 @@ class MockLocationService : Service() {
 
         if (!isRunning) {
             isRunning = true
-            // 仅在首次启动时注册 TestProvider，后续运行期间不再卸载，避免定位闪断
-            ensureProviderRegistered(LocationManager.GPS_PROVIDER, cleanFirst = true)
-            ensureProviderRegistered(LocationManager.NETWORK_PROVIDER, cleanFirst = true)
+            // 首次启动时逐个独立注册 gps、network、fused 三个通道
+            for (p in allTargetProviders) {
+                ensureProviderRegistered(p, cleanFirst = true)
+            }
             registerKeepAliveListeners()
             workerHandler?.removeCallbacks(pushRunnable)
             workerHandler?.post(pushRunnable)
@@ -137,7 +145,7 @@ class MockLocationService : Service() {
     }
 
     /**
-     * 注册单个测试定位源（严格区分 GPS 卫星源和 Network 网络源硬件属性）
+     * 独立注册单个测试定位通道（全部设为最高精度 ACCURACY_FINE，压制联网基站定位权重）
      */
     private fun ensureProviderRegistered(provider: String, cleanFirst: Boolean) {
         try {
@@ -160,7 +168,7 @@ class MockLocationService : Service() {
                     /* supportsSpeed = */ true,
                     /* supportsBearing = */ true,
                     ProviderProperties.POWER_USAGE_LOW,
-                    if (isGps) ProviderProperties.ACCURACY_FINE else ProviderProperties.ACCURACY_COARSE
+                    ProviderProperties.ACCURACY_FINE
                 )
             } else {
                 @Suppress("DEPRECATION")
@@ -174,12 +182,12 @@ class MockLocationService : Service() {
                     /* supportsSpeed = */ true,
                     /* supportsBearing = */ true,
                     Criteria.POWER_LOW,
-                    if (isGps) Criteria.ACCURACY_FINE else Criteria.ACCURACY_COARSE
+                    Criteria.ACCURACY_FINE
                 )
             }
-        } catch (_: IllegalArgumentException) {
-            // 如果已经存在则直接启用，不要移除
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            // 已存在或部分系统不支持时直接忽略，绝不影响其他通道
+        }
 
         try {
             locationManager.setTestProviderEnabled(provider, true)
@@ -187,9 +195,9 @@ class MockLocationService : Service() {
 
         try {
             val statusBundle = Bundle().apply {
-                putInt("satellites", 13)
-                putInt("maxCn0", 45)
-                putInt("meanCn0", 38)
+                putInt("satellites", 15)
+                putInt("maxCn0", 48)
+                putInt("meanCn0", 41)
             }
             @Suppress("DEPRECATION")
             locationManager.setTestProviderStatus(
@@ -205,29 +213,25 @@ class MockLocationService : Service() {
         val nowTime = System.currentTimeMillis()
         val elapsedNanos = SystemClock.elapsedRealtimeNanos()
 
-        // 模拟真实室外强 GPS 信号的自然微幅波动（±0.15米），防止被第三方 SDK 判定为死数据
-        val jitterLat = wgsLat + Random.nextDouble(-0.0000012, 0.0000012)
-        val jitterLng = wgsLng + Random.nextDouble(-0.0000012, 0.0000012)
+        // 模拟真实室外强 GPS 信号的自然微幅波动（±0.1米）
+        val jitterLat = wgsLat + Random.nextDouble(-0.0000009, 0.0000009)
+        val jitterLng = wgsLng + Random.nextDouble(-0.0000009, 0.0000009)
+        val simulatedBearing = Random.nextDouble(85.0, 95.0).toFloat()
+        // 设置 0.65 ~ 0.95 m/s 的轻微室外移动速度，使国内定位 SDK 在联网时判定为“室外移动强GPS状态”而忽略基站定位
+        val simulatedSpeed = Random.nextDouble(0.65, 0.95).toFloat()
 
-        // 1. 推送 GPS 卫星定位通道（高德/腾讯/百度 SDK 在 GPS 信号精度 <= 5m 时最高优先级采用）
-        pushSingleProvider(
-            provider = LocationManager.GPS_PROVIDER,
-            lat = jitterLat,
-            lng = jitterLng,
-            accuracyVal = 2.0f,
-            nowTime = nowTime,
-            elapsedNanos = elapsedNanos
-        )
-
-        // 2. 推送 Network 网络定位通道
-        pushSingleProvider(
-            provider = LocationManager.NETWORK_PROVIDER,
-            lat = jitterLat,
-            lng = jitterLng,
-            accuracyVal = 5.0f,
-            nowTime = nowTime,
-            elapsedNanos = elapsedNanos
-        )
+        for (provider in allTargetProviders) {
+            pushSingleProvider(
+                provider = provider,
+                lat = jitterLat,
+                lng = jitterLng,
+                accuracyVal = 1.2f, // 1.2米极高精度，权重远高于基站/Wi-Fi的30~200米精度
+                bearingVal = simulatedBearing,
+                speedVal = simulatedSpeed,
+                nowTime = nowTime,
+                elapsedNanos = elapsedNanos
+            )
+        }
     }
 
     private fun pushSingleProvider(
@@ -235,6 +239,8 @@ class MockLocationService : Service() {
         lat: Double,
         lng: Double,
         accuracyVal: Float,
+        bearingVal: Float,
+        speedVal: Float,
         nowTime: Long,
         elapsedNanos: Long
     ) {
@@ -242,29 +248,29 @@ class MockLocationService : Service() {
             val loc = Location(provider).apply {
                 latitude = lat
                 longitude = lng
-                altitude = 52.0
+                altitude = 52.5
                 accuracy = accuracyVal
-                bearing = 90.0f
-                speed = 0.02f
+                bearing = bearingVal
+                speed = speedVal
                 time = nowTime
                 elapsedRealtimeNanos = elapsedNanos
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    verticalAccuracyMeters = 1.5f
-                    speedAccuracyMetersPerSecond = 0.1f
-                    bearingAccuracyDegrees = 2.0f
+                    verticalAccuracyMeters = 1.0f
+                    speedAccuracyMetersPerSecond = 0.05f
+                    bearingAccuracyDegrees = 1.5f
                 }
 
+                // 仅保留标准卫星数与信噪比字段，不添加任何 mock 字样属性
                 extras = Bundle().apply {
-                    putInt("satellites", 13)
-                    putInt("maxCn0", 45)
-                    putInt("meanCn0", 38)
-                    putString("mockProvider", "gps")
+                    putInt("satellites", 15)
+                    putInt("maxCn0", 48)
+                    putInt("meanCn0", 41)
                 }
             }
             locationManager.setTestProviderLocation(provider, loc)
         } catch (_: Exception) {
-            // 仅针对当前报错的单个通道补充注册，绝不卸载其他正常工作的通道
+            // 仅尝试启用当前单个通道，绝不调用 removeTestProvider 卸载其他通道
             ensureProviderRegistered(provider, cleanFirst = false)
         }
     }
@@ -275,7 +281,7 @@ class MockLocationService : Service() {
             try {
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
-                    200L,
+                    100L,
                     0f,
                     gpsKeepAliveListener
                 )
@@ -283,9 +289,17 @@ class MockLocationService : Service() {
             try {
                 locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
-                    200L,
+                    100L,
                     0f,
                     netKeepAliveListener
+                )
+            } catch (_: Exception) {}
+            try {
+                locationManager.requestLocationUpdates(
+                    "fused",
+                    100L,
+                    0f,
+                    fusedKeepAliveListener
                 )
             } catch (_: Exception) {}
         }
@@ -504,12 +518,15 @@ class MockLocationService : Service() {
             locationManager.removeUpdates(netKeepAliveListener)
         } catch (_: Exception) {}
         try {
+            locationManager.removeUpdates(fusedKeepAliveListener)
+        } catch (_: Exception) {}
+        try {
             if (floatingView != null) {
                 windowManager.removeView(floatingView)
                 floatingView = null
             }
         } catch (_: Exception) {}
-        for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+        for (provider in allTargetProviders) {
             try {
                 locationManager.removeTestProvider(provider)
             } catch (_: Exception) {}
